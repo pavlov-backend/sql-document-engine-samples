@@ -1,5 +1,3 @@
-
-```postgresql
 -- public.v_abc_xyz_analysis source
 
 CREATE MATERIALIZED VIEW public.v_abc_xyz_analysis
@@ -71,4 +69,3 @@ WITH DATA;
 -- View indexes:
 CREATE INDEX idx_abc_xyz_sku ON public.v_abc_xyz_analysis USING btree (sku);
 CREATE UNIQUE INDEX idx_abc_xyz_unique ON public.v_abc_xyz_analysis USING btree (product_id);
-```
