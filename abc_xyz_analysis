@@ -1,0 +1,71 @@
+-- public.v_abc_xyz_analysis source
+
+CREATE MATERIALIZED VIEW public.v_abc_xyz_analysis
+TABLESPACE pg_default
+AS WITH sales_stats AS (
+         SELECT p.id AS product_id,
+            p.sku,
+            p.name_en,
+            p.category,
+            sum(oi.total_price) AS total_revenue,
+            avg(oi.quantity) AS avg_qty_per_order,
+            stddev(oi.quantity) AS stddev_qty,
+            count(oi.id) AS orders_count
+           FROM order_items oi
+             JOIN orders o ON oi.order_id = o.id
+             JOIN products p ON oi.product_id = p.id
+          WHERE o.order_date >= (CURRENT_DATE - '1 year'::interval) AND (o.status::text <> ALL (ARRAY['DRAFT'::character varying, 'CANCELLED'::character varying]::text[]))
+          GROUP BY p.id, p.sku, p.name_en, p.category
+        ), calculated_metrics AS (
+         SELECT sales_stats.product_id,
+            sales_stats.sku,
+            sales_stats.name_en,
+            sales_stats.category,
+            sales_stats.total_revenue,
+            sales_stats.avg_qty_per_order,
+            sales_stats.stddev_qty,
+            sales_stats.orders_count,
+                CASE
+                    WHEN sales_stats.avg_qty_per_order = 0::numeric THEN 0::numeric
+                    ELSE sales_stats.stddev_qty / sales_stats.avg_qty_per_order
+                END AS cv_coefficient,
+            sum(sales_stats.total_revenue) OVER (ORDER BY sales_stats.total_revenue DESC) AS running_revenue,
+            sum(sales_stats.total_revenue) OVER () AS grand_total_revenue
+           FROM sales_stats
+        )
+ SELECT product_id,
+    sku,
+    name_en,
+    category,
+    total_revenue,
+    orders_count,
+        CASE
+            WHEN running_revenue <= (grand_total_revenue * 0.80) THEN 'A'::text
+            WHEN running_revenue <= (grand_total_revenue * 0.95) THEN 'B'::text
+            ELSE 'C'::text
+        END AS abc_class,
+        CASE
+            WHEN orders_count < 5 THEN 'Z'::text
+            WHEN cv_coefficient <= 0.5 THEN 'X'::text
+            WHEN cv_coefficient <= 1.0 THEN 'Y'::text
+            ELSE 'Z'::text
+        END AS xyz_class,
+    concat(
+        CASE
+            WHEN running_revenue <= (grand_total_revenue * 0.80) THEN 'A'::text
+            WHEN running_revenue <= (grand_total_revenue * 0.95) THEN 'B'::text
+            ELSE 'C'::text
+        END,
+        CASE
+            WHEN orders_count < 5 THEN 'Z'::text
+            WHEN cv_coefficient <= 0.5 THEN 'X'::text
+            WHEN cv_coefficient <= 1.0 THEN 'Y'::text
+            ELSE 'Z'::text
+        END) AS matrix_code
+   FROM calculated_metrics
+  ORDER BY total_revenue DESC
+WITH DATA;
+
+-- View indexes:
+CREATE INDEX idx_abc_xyz_sku ON public.v_abc_xyz_analysis USING btree (sku);
+CREATE UNIQUE INDEX idx_abc_xyz_unique ON public.v_abc_xyz_analysis USING btree (product_id);
